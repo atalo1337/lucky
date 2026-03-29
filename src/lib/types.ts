@@ -35,6 +35,7 @@ export interface DashboardPrizeSummary {
   sortOrder: number
   availableCodes: number
   usedCodes: number
+  winnerCount: number
 }
 
 export interface DashboardResponse {
@@ -53,6 +54,7 @@ export interface AdminPrize {
   sortOrder: number
   availableCodes: number
   usedCodes: number
+  winnerCount: number
   createdAt: string
   updatedAt: string
 }

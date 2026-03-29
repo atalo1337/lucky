@@ -80,7 +80,12 @@ export async function listAdminPrizes(env: AppEnv) {
         p.created_at AS createdAt,
         p.updated_at AS updatedAt,
         SUM(CASE WHEN pc.status = 'unused' THEN 1 ELSE 0 END) AS availableCodes,
-        SUM(CASE WHEN pc.status = 'used' THEN 1 ELSE 0 END) AS usedCodes
+        SUM(CASE WHEN pc.status = 'used' THEN 1 ELSE 0 END) AS usedCodes,
+        (
+          SELECT COUNT(*)
+          FROM draw_records dr
+          WHERE dr.prize_id = p.id AND dr.is_win = 1
+        ) AS winnerCount
       FROM prizes p
       LEFT JOIN prize_codes pc ON pc.prize_id = p.id
       WHERE p.deleted_at IS NULL
@@ -98,6 +103,7 @@ export async function listAdminPrizes(env: AppEnv) {
       updatedAt: string
       availableCodes: number | null
       usedCodes: number | null
+      winnerCount: number | null
     }>()
 
   return (rows.results ?? []).map((row) => ({
@@ -105,6 +111,7 @@ export async function listAdminPrizes(env: AppEnv) {
     isActive: row.isActive === 1,
     availableCodes: Number(row.availableCodes ?? 0),
     usedCodes: Number(row.usedCodes ?? 0),
+    winnerCount: Number(row.winnerCount ?? 0),
   }))
 }
 

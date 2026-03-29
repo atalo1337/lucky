@@ -22,7 +22,12 @@ export const onRequestGet: AppFunction = async (context) => {
             p.is_active AS isActive,
             p.sort_order AS sortOrder,
             SUM(CASE WHEN pc.status = 'unused' THEN 1 ELSE 0 END) AS availableCodes,
-            SUM(CASE WHEN pc.status = 'used' THEN 1 ELSE 0 END) AS usedCodes
+            SUM(CASE WHEN pc.status = 'used' THEN 1 ELSE 0 END) AS usedCodes,
+            (
+              SELECT COUNT(*)
+              FROM draw_records dr
+              WHERE dr.prize_id = p.id AND dr.is_win = 1
+            ) AS winnerCount
           FROM prizes p
           LEFT JOIN prize_codes pc ON pc.prize_id = p.id
           WHERE p.deleted_at IS NULL
@@ -37,6 +42,7 @@ export const onRequestGet: AppFunction = async (context) => {
           sortOrder: number
           availableCodes: number | null
           usedCodes: number | null
+          winnerCount: number | null
         }>(),
     ])
 
@@ -49,6 +55,7 @@ export const onRequestGet: AppFunction = async (context) => {
         isActive: item.isActive === 1,
         availableCodes: Number(item.availableCodes ?? 0),
         usedCodes: Number(item.usedCodes ?? 0),
+        winnerCount: Number(item.winnerCount ?? 0),
       })),
     })
   } catch (error) {

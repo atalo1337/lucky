@@ -29,6 +29,7 @@ interface PrizeDraft {
   sortOrder: string
   availableCodes: number
   usedCodes: number
+  winnerCount: number
 }
 
 const emptyLoginForm: LoginFormState = {
@@ -60,6 +61,7 @@ function toPrizeDraft(prize: AdminPrize): PrizeDraft {
     sortOrder: String(prize.sortOrder),
     availableCodes: prize.availableCodes,
     usedCodes: prize.usedCodes,
+    winnerCount: prize.winnerCount,
   }
 }
 
@@ -606,6 +608,15 @@ export function AdminPage() {
           <p className="inline-note">
             当前启用奖项的概率总和：{activeProbability.toFixed(2)}%
           </p>
+          {dashboard?.prizeSummaries.length ? (
+            <div className="prize-grid">
+              {dashboard.prizeSummaries.map((prize) => (
+                <div className="prize-chip" key={prize.id}>
+                  {prize.name} {prize.winnerCount} 人中奖
+                </div>
+              ))}
+            </div>
+          ) : null}
         </article>
 
         <article className="panel">
@@ -756,6 +767,7 @@ export function AdminPage() {
                   <div className="cell-stack">
                     <strong>剩余 {prize.availableCodes}</strong>
                     <small>已发放 {prize.usedCodes}</small>
+                    <small>已中奖 {prize.winnerCount}</small>
                     <input
                       accept=".txt,.csv,text/plain,text/csv"
                       onChange={(event: ChangeEvent<HTMLInputElement>) => {
