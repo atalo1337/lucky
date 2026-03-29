@@ -1,0 +1,5 @@
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=ChangeMe123456
+SESSION_SECRET=replace-with-at-least-32-random-characters
+TURNSTILE_SITE_KEY=replace-with-your-turnstile-site-key
+TURNSTILE_SECRET_KEY=replace-with-your-turnstile-secret-key
