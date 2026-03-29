@@ -1,5 +1,8 @@
 import type { AdminRecord, AppEnv } from './types'
-import { hashPassword } from './security'
+import {
+  hashPassword,
+  isPasswordHashSupported,
+} from './security'
 
 let schemaReady = false
 
@@ -45,6 +48,40 @@ async function ensureSchemaExists(db: D1Database) {
   }
 }
 
+async function upgradeLegacyDefaultAdmin(env: AppEnv, db: D1Database) {
+  if (!env.ADMIN_USERNAME || !env.ADMIN_PASSWORD) {
+    return
+  }
+
+  const admin = await db
+    .prepare(
+      `SELECT id, username, password_hash
+       FROM admins
+       WHERE username = ?
+       LIMIT 1`,
+    )
+    .bind(env.ADMIN_USERNAME)
+    .first<{
+      id: string
+      username: string
+      password_hash: string
+    }>()
+
+  if (!admin || isPasswordHashSupported(admin.password_hash)) {
+    return
+  }
+
+  const passwordHash = await hashPassword(env.ADMIN_PASSWORD)
+  await db
+    .prepare(
+      `UPDATE admins
+       SET password_hash = ?, must_change_password = 1, updated_at = ?
+       WHERE id = ?`,
+    )
+    .bind(passwordHash, nowIso(), admin.id)
+    .run()
+}
+
 export async function ensureDatabase(env: AppEnv) {
   if (schemaReady) {
     return
@@ -52,6 +89,7 @@ export async function ensureDatabase(env: AppEnv) {
 
   const db = getDatabase(env)
   await ensureSchemaExists(db)
+  await upgradeLegacyDefaultAdmin(env, db)
   await db
     .prepare(
       `INSERT OR IGNORE INTO lottery_settings (id, is_enabled, updated_at)

@@ -1,6 +1,22 @@
 import { fromBase64Url, toArrayBuffer, toBase64Url } from './encoding'
 
-const PASSWORD_ITERATIONS = 120_000
+export const PASSWORD_ITERATIONS = 100_000
+
+export function getPasswordHashIterations(storedHash: string): number | null {
+  const [iterationText] = storedHash.split('$')
+  const iterations = Number(iterationText)
+
+  if (!Number.isFinite(iterations) || iterations <= 0) {
+    return null
+  }
+
+  return iterations
+}
+
+export function isPasswordHashSupported(storedHash: string): boolean {
+  const iterations = getPasswordHashIterations(storedHash)
+  return iterations !== null && iterations <= PASSWORD_ITERATIONS
+}
 
 export async function sha256(value: string): Promise<string> {
   const hash = await crypto.subtle.digest('SHA-256', toArrayBuffer(value))
@@ -71,14 +87,14 @@ export async function verifyPassword(
   password: string,
   storedHash: string,
 ): Promise<boolean> {
-  const [iterationText, saltText, expectedText] = storedHash.split('$')
+  const [, saltText, expectedText] = storedHash.split('$')
+  const iterations = getPasswordHashIterations(storedHash)
 
-  if (!iterationText || !saltText || !expectedText) {
+  if (!saltText || !expectedText || iterations === null) {
     return false
   }
 
-  const iterations = Number(iterationText)
-  if (!Number.isFinite(iterations) || iterations <= 0) {
+  if (iterations > PASSWORD_ITERATIONS) {
     return false
   }
 

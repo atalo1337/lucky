@@ -10,7 +10,10 @@ import {
 } from '../../_lib/db'
 import { fail, ok, parseJson } from '../../_lib/http'
 import { createSessionValue } from '../../_lib/session'
-import { verifyPassword } from '../../_lib/security'
+import {
+  isPasswordHashSupported,
+  verifyPassword,
+} from '../../_lib/security'
 import type { AppFunction } from '../../_lib/types'
 
 interface LoginBody {
@@ -30,6 +33,14 @@ export const onRequestPost: AppFunction = async (context) => {
     const admin = await getAdminByUsername(context.env, body.username.trim())
     if (!admin) {
       return fail('管理员账号或密码错误。', 401, 'INVALID_LOGIN')
+    }
+
+    if (!isPasswordHashSupported(admin.password_hash)) {
+      return fail(
+        '当前管理员密码来自旧版本不兼容参数。请确认 ADMIN_PASSWORD 已配置，然后重新部署后再登录。',
+        500,
+        'PASSWORD_HASH_UPGRADE_REQUIRED',
+      )
     }
 
     const verified = await verifyPassword(body.password, admin.password_hash)
