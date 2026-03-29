@@ -7,8 +7,8 @@
     {
       "binding": "DB",
       "database_name": "spark-lottery-db",
-      "database_id": "00000000-0000-0000-0000-000000000000",
-      "preview_database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "e5148311-fe8f-43f5-8664-59c597b3e2ac",
+      "preview_database_id": "e5148311-fe8f-43f5-8664-59c597b3e2ac",
       "migrations_dir": "migrations"
     }
   ],
