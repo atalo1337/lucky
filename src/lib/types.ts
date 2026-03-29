@@ -10,6 +10,7 @@ export interface DrawResult {
 export interface PublicPrize {
   id: string
   name: string
+  winnerCount: number
 }
 
 export interface LotteryStatusResponse {

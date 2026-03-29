@@ -87,12 +87,19 @@ export async function getLotteryStatus(env: AppEnv, request: Request) {
       .first<{ count: number }>(),
     env.DB
       .prepare(
-        `SELECT id, name
-         FROM prizes
-         WHERE is_active = 1 AND deleted_at IS NULL
-         ORDER BY sort_order ASC, created_at ASC`,
+        `SELECT
+           p.id,
+           p.name,
+           (
+             SELECT COUNT(*)
+             FROM draw_records dr
+             WHERE dr.prize_id = p.id AND dr.is_win = 1
+           ) AS winnerCount
+         FROM prizes p
+         WHERE p.is_active = 1 AND p.deleted_at IS NULL
+         ORDER BY p.sort_order ASC, p.created_at ASC`,
       )
-      .all<{ id: string; name: string }>(),
+      .all<{ id: string; name: string; winnerCount: number | null }>(),
   ])
 
   const participantId = await readSignedCookie(
@@ -111,7 +118,10 @@ export async function getLotteryStatus(env: AppEnv, request: Request) {
     siteKey: env.TURNSTILE_SITE_KEY ?? '',
     hasParticipated: Boolean(lastResult),
     lastResult,
-    publicPrizes: publicPrizes.results ?? [],
+    publicPrizes: (publicPrizes.results ?? []).map((prize) => ({
+      ...prize,
+      winnerCount: Number(prize.winnerCount ?? 0),
+    })),
   }
 }
 

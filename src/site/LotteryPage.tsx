@@ -145,6 +145,14 @@ export function LotteryPage() {
               participantCount: draw.participantCount,
               hasParticipated: true,
               lastResult: draw.result,
+              publicPrizes: current.publicPrizes.map((prize) =>
+                draw.result.isWin && draw.result.prizeId === prize.id
+                  ? {
+                      ...prize,
+                      winnerCount: prize.winnerCount + 1,
+                    }
+                  : prize,
+              ),
             }
           : current,
       )
@@ -255,7 +263,7 @@ export function LotteryPage() {
             {status?.publicPrizes.length ? (
               status.publicPrizes.map((prize) => (
                 <div className="prize-chip" key={prize.id}>
-                  {prize.name}
+                  {prize.name} · 已中奖 {prize.winnerCount} 人
                 </div>
               ))
             ) : (
