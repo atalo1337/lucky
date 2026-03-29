@@ -46,6 +46,20 @@ async function ensureSchemaExists(db: D1Database) {
       `数据库尚未初始化，缺少表：${missing.join(', ')}。请先执行 migrations/0001_init.sql 后再访问站点。`,
     )
   }
+
+  const prizeSchema = await db
+    .prepare(
+      `SELECT sql
+       FROM sqlite_master
+       WHERE type = 'table' AND name = 'prizes'`,
+    )
+    .first<{ sql: string | null }>()
+
+  if (!prizeSchema?.sql?.includes('deleted_at')) {
+    throw new Error(
+      '数据库缺少 prizes.deleted_at 字段，请先执行 migrations/0002_soft_delete_prizes.sql 后再访问站点。',
+    )
+  }
 }
 
 async function upgradeLegacyDefaultAdmin(env: AppEnv, db: D1Database) {

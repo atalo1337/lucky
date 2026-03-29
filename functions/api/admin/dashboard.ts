@@ -25,6 +25,7 @@ export const onRequestGet: AppFunction = async (context) => {
             SUM(CASE WHEN pc.status = 'used' THEN 1 ELSE 0 END) AS usedCodes
           FROM prizes p
           LEFT JOIN prize_codes pc ON pc.prize_id = p.id
+          WHERE p.deleted_at IS NULL
           GROUP BY p.id
           ORDER BY p.sort_order ASC, p.created_at ASC`,
         )

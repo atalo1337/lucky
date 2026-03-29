@@ -52,7 +52,9 @@ export async function ensureProbabilityWithinLimit(
     .prepare(
       `SELECT COALESCE(SUM(probability_percent), 0) AS total
        FROM prizes
-       WHERE is_active = 1 AND (? IS NULL OR id != ?)`,
+       WHERE deleted_at IS NULL
+         AND is_active = 1
+         AND (? IS NULL OR id != ?)`,
     )
     .bind(excludePrizeId ?? null, excludePrizeId ?? null)
     .first<{ total: number }>()
@@ -81,6 +83,7 @@ export async function listAdminPrizes(env: AppEnv) {
         SUM(CASE WHEN pc.status = 'used' THEN 1 ELSE 0 END) AS usedCodes
       FROM prizes p
       LEFT JOIN prize_codes pc ON pc.prize_id = p.id
+      WHERE p.deleted_at IS NULL
       GROUP BY p.id
       ORDER BY p.sort_order ASC, p.created_at ASC`,
     )
@@ -118,8 +121,8 @@ export async function createPrize(env: AppEnv, input: PrizeInput) {
   await env.DB
     .prepare(
       `INSERT INTO prizes (
-        id, name, probability_percent, win_message, is_active, sort_order, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        id, name, probability_percent, win_message, is_active, sort_order, created_at, updated_at, deleted_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
     )
     .bind(
       id,
@@ -149,7 +152,7 @@ export async function updatePrize(env: AppEnv, prizeId: string, input: PrizeInpu
     .prepare(
       `UPDATE prizes
        SET name = ?, probability_percent = ?, win_message = ?, is_active = ?, sort_order = ?, updated_at = ?
-       WHERE id = ?`,
+       WHERE id = ? AND deleted_at IS NULL`,
     )
     .bind(
       input.name.trim(),
@@ -170,36 +173,34 @@ export async function updatePrize(env: AppEnv, prizeId: string, input: PrizeInpu
 export async function deletePrize(env: AppEnv, prizeId: string) {
   await ensureDatabase(env)
 
-  const [prize, drawCount, usedCodeCount] = await Promise.all([
-    env.DB
-      .prepare('SELECT id, name FROM prizes WHERE id = ?')
-      .bind(prizeId)
-      .first<{ id: string; name: string }>(),
-    env.DB
-      .prepare('SELECT COUNT(*) AS count FROM draw_records WHERE prize_id = ?')
-      .bind(prizeId)
-      .first<{ count: number }>(),
-    env.DB
-      .prepare(
-        `SELECT COUNT(*) AS count
-         FROM prize_codes
-         WHERE prize_id = ? AND status = 'used'`,
-      )
-      .bind(prizeId)
-      .first<{ count: number }>(),
-  ])
+  const prize = await env.DB
+    .prepare(
+      `SELECT id, name
+       FROM prizes
+       WHERE id = ? AND deleted_at IS NULL`,
+    )
+    .bind(prizeId)
+    .first<{ id: string; name: string }>()
 
   if (!prize) {
     throw new Error('奖项不存在。')
   }
 
-  if (Number(drawCount?.count ?? 0) > 0 || Number(usedCodeCount?.count ?? 0) > 0) {
-    throw new Error('该奖项已有抽奖记录或已发放卡密，不能直接删除，请先停用后保留历史数据。')
-  }
-
+  const deletedAt = nowIso()
   await env.DB.batch([
-    env.DB.prepare('DELETE FROM prize_codes WHERE prize_id = ?').bind(prizeId),
-    env.DB.prepare('DELETE FROM prizes WHERE id = ?').bind(prizeId),
+    env.DB
+      .prepare(
+        `UPDATE prizes
+         SET is_active = 0, probability_percent = 0, updated_at = ?, deleted_at = ?
+         WHERE id = ?`,
+      )
+      .bind(deletedAt, deletedAt, prizeId),
+    env.DB
+      .prepare(
+        `DELETE FROM prize_codes
+         WHERE prize_id = ? AND status = 'unused'`,
+      )
+      .bind(prizeId),
   ])
 
   return prize
@@ -267,7 +268,7 @@ export async function deletePrizeCode(
   }
 
   const result = await env.DB
-    .prepare('DELETE FROM prize_codes WHERE id = ? AND prize_id = ? AND status = \'unused\'')
+    .prepare("DELETE FROM prize_codes WHERE id = ? AND prize_id = ? AND status = 'unused'")
     .bind(codeId, prizeId)
     .run()
 

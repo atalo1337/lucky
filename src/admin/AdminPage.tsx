@@ -293,7 +293,7 @@ export function AdminPage() {
 
   async function deletePrize(prize: PrizeDraft) {
     const confirmed = window.confirm(
-      `确认删除奖项「${prize.name}」吗？如果该奖项已有中奖记录或已发放卡密，系统会拒绝删除。`,
+      `确认删除奖项「${prize.name}」吗？删除后该奖项会从后台和前台列表中隐藏，未使用卡密会一并清理。`,
     )
     if (!confirmed) {
       return
@@ -313,7 +313,7 @@ export function AdminPage() {
       })
       setExpandedPrizeId((current) => (current === prize.id ? null : current))
       await loadAdminData()
-      setNotice(`奖项「${prize.name}」已删除。`)
+      setNotice(`奖项「${prize.name}」已删除并隐藏，未使用卡密已清理。`)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '删除奖项失败。')
     } finally {

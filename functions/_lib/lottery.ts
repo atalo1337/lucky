@@ -89,7 +89,7 @@ export async function getLotteryStatus(env: AppEnv, request: Request) {
       .prepare(
         `SELECT id, name
          FROM prizes
-         WHERE is_active = 1
+         WHERE is_active = 1 AND deleted_at IS NULL
          ORDER BY sort_order ASC, created_at ASC`,
       )
       .all<{ id: string; name: string }>(),
@@ -131,7 +131,7 @@ async function selectPrize(env: AppEnv): Promise<PrizeCandidate | null> {
         SUM(CASE WHEN pc.status = 'unused' THEN 1 ELSE 0 END) AS available_codes
       FROM prizes p
       LEFT JOIN prize_codes pc ON pc.prize_id = p.id
-      WHERE p.is_active = 1
+      WHERE p.is_active = 1 AND p.deleted_at IS NULL
       GROUP BY p.id
       ORDER BY p.sort_order ASC, p.created_at ASC`,
     )

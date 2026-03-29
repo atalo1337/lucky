@@ -27,9 +27,24 @@ export const onRequestPost: AppFunction<'id'> = async (context) => {
     const prizeId = Array.isArray(context.params.id)
       ? context.params.id[0]
       : context.params.id
+
     if (!prizeId) {
       return fail('缺少奖项 ID。', 400, 'PRIZE_ID_REQUIRED')
     }
+
+    const prize = await context.env.DB
+      .prepare(
+        `SELECT id
+         FROM prizes
+         WHERE id = ? AND deleted_at IS NULL`,
+      )
+      .bind(prizeId)
+      .first<{ id: string }>()
+
+    if (!prize) {
+      return fail('奖项不存在或已删除。', 404, 'PRIZE_NOT_FOUND')
+    }
+
     const formData = await context.request.formData()
     const file = formData.get('file')
 
