@@ -216,8 +216,8 @@ export function LotteryPage() {
     <main className="page shell">
       <section className="hero-panel lottery-hero">
         <div className="hero-copy">
-          <span className="eyebrow">Cloudflare Pages 抽奖站</span>
-          <h1>星火抽奖站</h1>
+          <span className="eyebrow">Cloudflare Pages 抽奖模板</span>
+          <h1>Cloudflare 抽奖站</h1>
           <p className="lead">
             普通用户可以直接参与抽奖，查看各奖项中奖人数。中奖卡密不在页面回显，
             系统会自动发送到你填写的邮箱。

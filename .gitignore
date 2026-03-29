@@ -13,6 +13,7 @@ dist-ssr
 *.local
 .dev.vars
 .dev.vars.*
+pages.zip
 
 # Editor directories and files
 .vscode/*

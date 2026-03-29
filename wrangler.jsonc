@@ -1,14 +1,16 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "spark-lottery-pages",
+  // Replace with your own Pages/Workers project name before deployment.
+  "name": "cloudflare-pages-lottery",
   "compatibility_date": "2026-03-29",
   "pages_build_output_dir": "./dist",
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "spark-lottery-db",
-      "database_id": "e5148311-fe8f-43f5-8664-59c597b3e2ac",
-      "preview_database_id": "e5148311-fe8f-43f5-8664-59c597b3e2ac",
+      // Replace these with your actual D1 database details.
+      "database_name": "lottery-db",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "preview_database_id": "00000000-0000-0000-0000-000000000000",
       "migrations_dir": "migrations"
     }
   ],

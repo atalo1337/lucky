@@ -1,22 +1,23 @@
-# 星火抽奖站
+# Cloudflare 抽奖站模板
 
-一个为 Cloudflare Pages 设计的全栈抽奖网站。
+一个基于 Cloudflare Pages、Pages Functions、D1 和 Turnstile 的抽奖网站模板。
 
-## 已实现功能
+这个模板适合直接二次开发，或者拿去作为完整项目骨架使用。
 
-- 普通用户在前台匿名参与抽奖，每轮每人限一次
-- 前台展示各奖项当前中奖人数
-- 中奖后不在页面直接展示卡密，而是发送到用户填写的邮箱
-- 管理员通过 `/admin` 登录后台
-- 管理员可开启或关闭抽奖系统
-- 管理员可设置抽奖人数上限
-- 管理员可设置自动开启时间
-- 管理员可新增、编辑、删除奖项
-- 管理员可上传、查看、删除未使用卡密
-- 开启新一轮抽奖前，系统会清空上一轮抽奖记录，并把未删除奖项的已用卡密重置回未使用
-- 当人数达到上限或所有可抽卡密耗尽时，系统会自动关闭抽奖
-- 后台可查看抽奖记录、中奖邮箱、邮件发送状态和各奖项中奖人数
-- 默认管理员账号通过环境变量初始化，首次登录强制改密
+## 功能概览
+
+- 前台匿名抽奖，每轮每人限一次
+- 前台显示各奖项中奖人数
+- 中奖卡密通过邮箱发送，不在前台直接暴露
+- `/admin` 管理后台登录
+- 开关抽奖系统
+- 设置奖项概率
+- 上传、查看、删除未使用卡密
+- 设置抽奖人数上限
+- 设置自动开启时间
+- 开启新一轮抽奖时自动清空上一轮抽奖记录，并重置卡密状态
+- 卡密全部抽完后自动关闭抽奖
+- 后台查看抽奖记录、邮箱、邮件发送状态、各奖项中奖人数
 
 ## 技术栈
 
@@ -24,16 +25,18 @@
 - 后端：Cloudflare Pages Functions
 - 数据库：Cloudflare D1
 - 人机校验：Cloudflare Turnstile
-- 邮件发送：Cloudflare Runtime TCP Socket + SMTP
+- 邮件：SMTP（通过 Cloudflare Runtime Socket 发送）
 
-## 重要说明
+## 目录说明
 
-- 这个项目使用了 `functions/`，不能用 Cloudflare 控制台的静态文件拖拽上传方式部署，必须使用 Git 集成或 Wrangler 部署。
-- 当前“自动开启抽奖”是 Pages 版本的实现：到达设定时间后，首次访问前台或后台时会自动开启新一轮抽奖。它不是后台常驻定时器。
-- 如果你需要“精确到点、无人访问也自动开启”，建议后续再加一个独立 Worker 的 Cron Trigger。
-- SMTP 密钥不要写死到代码里，应该配置在 Cloudflare Secrets。
+- [src/site/LotteryPage.tsx](./src/site/LotteryPage.tsx)：前台抽奖页
+- [src/admin/AdminPage.tsx](./src/admin/AdminPage.tsx)：管理后台
+- [functions/api](./functions/api)：Pages Functions 接口
+- [functions/_lib](./functions/_lib)：抽奖、鉴权、邮件、数据库等核心逻辑
+- [migrations](./migrations)：D1 数据库迁移文件
+- [wrangler.jsonc](./wrangler.jsonc)：Cloudflare 配置模板
 
-## 本地开发
+## 快速开始
 
 1. 安装依赖
 
@@ -41,38 +44,44 @@
 npm install
 ```
 
-2. 复制变量模板
+2. 复制环境变量模板
 
 ```bash
 copy .dev.vars.example .dev.vars
 ```
 
-3. 创建 D1 数据库，并把 [wrangler.jsonc](./wrangler.jsonc) 里的 `database_id` 和 `preview_database_id` 改成真实值
+3. 按需修改以下配置
+
+- [wrangler.jsonc](./wrangler.jsonc) 里的 `name`
+- [wrangler.jsonc](./wrangler.jsonc) 里的 D1 `database_name`
+- Cloudflare Pages 里的 Variables / Secrets
 
 4. 初始化数据库
 
-```bash
-npx wrangler d1 execute spark-lottery-db --local --file migrations/0001_init.sql
-```
-
-如果你是从旧版本升级，还要继续执行：
+全新部署：
 
 ```bash
-npx wrangler d1 execute spark-lottery-db --local --file migrations/0002_soft_delete_prizes.sql
-npx wrangler d1 execute spark-lottery-db --local --file migrations/0003_lottery_automation_and_email.sql
+npx wrangler d1 execute lottery-db --local --file migrations/0001_init.sql
 ```
 
-5. 本地运行 Pages 模式
+如果你是在旧版本基础上升级，还要继续执行：
+
+```bash
+npx wrangler d1 execute lottery-db --local --file migrations/0002_soft_delete_prizes.sql
+npx wrangler d1 execute lottery-db --local --file migrations/0003_lottery_automation_and_email.sql
+```
+
+5. 本地预览
 
 ```bash
 npm run preview:pages
 ```
 
-## Cloudflare 部署
+## Cloudflare 需要配置的内容
 
-请直接查看 [CLOUDFLARE_DEPLOY.md](./CLOUDFLARE_DEPLOY.md)。
+### D1 Binding
 
-## 当前需要的环境变量和机密
+- 名称：`DB`
 
 ### Variables
 
@@ -84,29 +93,38 @@ npm run preview:pages
 - `ADMIN_PASSWORD=你的后台初始密码`
 - `SESSION_SECRET=至少 32 位随机字符串`
 - `TURNSTILE_SECRET_KEY=你的 Turnstile Secret Key`
+- `SMTP_HOST=你的 SMTP 主机`
+- `SMTP_PORT=465`
 - `SMTP_USERNAME=你的 SMTP 登录账号`
-- `SMTP_PASSWORD=你的 SMTP 授权码或密码`
-- `SMTP_FROM_EMAIL=发件邮箱，可选，默认等于 SMTP_USERNAME`
-- `SMTP_FROM_NAME=发件人名称，可选`
-- `SMTP_HOST=smtp.qq.com` 可选
-- `SMTP_PORT=465` 可选
+- `SMTP_PASSWORD=你的 SMTP 密码或授权码`
+- `SMTP_FROM_EMAIL=发件邮箱`
+- `SMTP_FROM_NAME=发件人名称`
 
-## 数据库迁移
+更详细的部署步骤见 [CLOUDFLARE_DEPLOY.md](./CLOUDFLARE_DEPLOY.md)。
 
-全新部署：
+## 自动开启机制说明
 
-```bash
-npx wrangler d1 execute spark-lottery-db --remote --file migrations/0001_init.sql
-```
+当前模板运行在 Cloudflare Pages Functions 上。
 
-旧版本升级到当前版本：
+现在这版“自动开启抽奖”的行为是：
 
-```bash
-npx wrangler d1 execute spark-lottery-db --remote --file migrations/0002_soft_delete_prizes.sql
-npx wrangler d1 execute spark-lottery-db --remote --file migrations/0003_lottery_automation_and_email.sql
-```
+- 后台设置开启时间
+- 到时间后，首次访问前台、后台或抽奖接口时
+- 系统自动开启新一轮抽奖，并清空上一轮记录
 
-## 我实际跑过的检查
+这是一种“请求触发式自动开启”。
+
+如果你需要“无人访问也必须准点开启”，建议额外加一个独立 Worker 的 Cron Trigger。
+
+## 二次开发建议
+
+- 改站点名称：前台标题、后台标题、README
+- 改默认邮件标题和发件人名称
+- 改抽奖文案和界面风格
+- 改数据库名、项目名、管理员账号名
+- 如果面向公开用户，建议把邮件发送失败告警接到日志或通知系统
+
+## 验证命令
 
 ```bash
 npm run check

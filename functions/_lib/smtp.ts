@@ -3,9 +3,9 @@ import { nowIso } from './db'
 import { requireSecret } from './env'
 import type { AppEnv } from './types'
 
-const DEFAULT_SMTP_HOST = 'smtp.qq.com'
+const DEFAULT_SMTP_HOST = 'smtp.example.com'
 const DEFAULT_SMTP_PORT = 465
-const DEFAULT_FROM_NAME = 'southside legacy卡网'
+const DEFAULT_FROM_NAME = 'Cloudflare 抽奖系统'
 
 interface WinnerEmailPayload {
   to: string
