@@ -1,12 +1,22 @@
 import type { ApiEnvelope } from './types'
 
 async function parseEnvelope<T>(response: Response): Promise<ApiEnvelope<T>> {
-  const body = (await response.json().catch(() => null)) as ApiEnvelope<T> | null
+  const fallback = response.clone()
+  const body = (await response.json().catch(async () => {
+    const text = (await fallback.text().catch(() => '')).trim()
+
+    return {
+      ok: false,
+      error: text
+        ? `服务暂时异常（HTTP ${response.status}）：${text.slice(0, 160)}`
+        : `服务返回了无法识别的数据（HTTP ${response.status}）。`,
+    } satisfies ApiEnvelope<T>
+  })) as ApiEnvelope<T> | null
 
   if (!body || typeof body.ok !== 'boolean') {
     return {
       ok: false,
-      error: '服务返回了无法识别的数据。',
+      error: `服务返回了无法识别的数据（HTTP ${response.status}）。`,
     }
   }
 

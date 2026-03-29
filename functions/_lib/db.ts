@@ -82,19 +82,32 @@ export function nowIso(): string {
   return new Date().toISOString()
 }
 
+function getDatabase(env: AppEnv): D1Database {
+  if (!env.DB || typeof env.DB.prepare !== 'function') {
+    throw new Error(
+      '未检测到 Cloudflare D1 绑定。请在 Pages 项目的 Settings -> Bindings 中添加名称为 DB 的 D1 绑定，并重新部署。',
+    )
+  }
+
+  return env.DB
+}
+
 export async function ensureDatabase(env: AppEnv) {
   if (schemaReady) {
     return
   }
 
-  await env.DB.exec(SCHEMA_SQL)
-  await env.DB
+  const db = getDatabase(env)
+
+  await db.exec(SCHEMA_SQL)
+  await db
     .prepare(
       `INSERT OR IGNORE INTO lottery_settings (id, is_enabled, updated_at)
        VALUES (1, 0, ?)`,
     )
     .bind(nowIso())
     .run()
+
   schemaReady = true
 }
 
@@ -105,7 +118,8 @@ export async function ensureDefaultAdmin(env: AppEnv) {
     return
   }
 
-  const existing = await env.DB.prepare('SELECT id FROM admins LIMIT 1').first<{ id: string }>()
+  const db = getDatabase(env)
+  const existing = await db.prepare('SELECT id FROM admins LIMIT 1').first<{ id: string }>()
   if (existing) {
     return
   }
@@ -113,7 +127,7 @@ export async function ensureDefaultAdmin(env: AppEnv) {
   const now = nowIso()
   const passwordHash = await hashPassword(env.ADMIN_PASSWORD)
 
-  await env.DB
+  await db
     .prepare(
       `INSERT INTO admins (
         id, username, password_hash, must_change_password, created_at, updated_at
@@ -130,7 +144,7 @@ export async function getAdminById(
   await ensureDatabase(env)
 
   return (
-    (await env.DB
+    (await getDatabase(env)
       .prepare(
         `SELECT id, username, password_hash, must_change_password, created_at, updated_at, last_login_at
          FROM admins
@@ -148,7 +162,7 @@ export async function getAdminByUsername(
   await ensureDefaultAdmin(env)
 
   return (
-    (await env.DB
+    (await getDatabase(env)
       .prepare(
         `SELECT id, username, password_hash, must_change_password, created_at, updated_at, last_login_at
          FROM admins
@@ -169,7 +183,7 @@ export async function writeAuditLog(
 ) {
   await ensureDatabase(env)
 
-  await env.DB
+  await getDatabase(env)
     .prepare(
       `INSERT INTO admin_audit_logs (
         id, admin_id, action, target_type, target_id, payload_json, created_at
