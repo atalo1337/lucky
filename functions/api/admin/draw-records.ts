@@ -12,6 +12,8 @@ export const onRequestGet: AppFunction = async (context) => {
           dr.participant_hash AS participantHash,
           p.name AS prizeName,
           pc.code_value AS codeValue,
+          dr.contact_email AS contactEmail,
+          dr.email_status AS emailStatus,
           dr.shown_message AS shownMessage
         FROM draw_records dr
         LEFT JOIN prizes p ON p.id = dr.prize_id
@@ -26,6 +28,8 @@ export const onRequestGet: AppFunction = async (context) => {
         participantHash: string
         prizeName: string | null
         codeValue: string | null
+        contactEmail: string | null
+        emailStatus: string | null
         shownMessage: string
       }>()
 
@@ -33,6 +37,7 @@ export const onRequestGet: AppFunction = async (context) => {
       (records.results ?? []).map((item) => ({
         ...item,
         isWin: item.isWin === 1,
+        emailStatus: item.emailStatus ?? 'not_applicable',
       })),
     )
   } catch (error) {

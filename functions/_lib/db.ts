@@ -60,6 +60,40 @@ async function ensureSchemaExists(db: D1Database) {
       '数据库缺少 prizes.deleted_at 字段，请先执行 migrations/0002_soft_delete_prizes.sql 后再访问站点。',
     )
   }
+
+  const settingsSchema = await db
+    .prepare(
+      `SELECT sql
+       FROM sqlite_master
+       WHERE type = 'table' AND name = 'lottery_settings'`,
+    )
+    .first<{ sql: string | null }>()
+
+  if (
+    !settingsSchema?.sql?.includes('max_participants')
+    || !settingsSchema.sql.includes('scheduled_open_at')
+  ) {
+    throw new Error(
+      '数据库缺少抽奖设置扩展字段，请先执行 migrations/0003_lottery_automation_and_email.sql 后再访问站点。',
+    )
+  }
+
+  const drawRecordSchema = await db
+    .prepare(
+      `SELECT sql
+       FROM sqlite_master
+       WHERE type = 'table' AND name = 'draw_records'`,
+    )
+    .first<{ sql: string | null }>()
+
+  if (
+    !drawRecordSchema?.sql?.includes('contact_email')
+    || !drawRecordSchema.sql.includes('email_status')
+  ) {
+    throw new Error(
+      '数据库缺少中奖邮件字段，请先执行 migrations/0003_lottery_automation_and_email.sql 后再访问站点。',
+    )
+  }
 }
 
 async function upgradeLegacyDefaultAdmin(env: AppEnv, db: D1Database) {

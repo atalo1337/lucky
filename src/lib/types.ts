@@ -16,6 +16,8 @@ export interface PublicPrize {
 export interface LotteryStatusResponse {
   isEnabled: boolean
   participantCount: number
+  maxParticipants: number | null
+  remainingParticipants: number | null
   siteKey: string
   hasParticipated: boolean
   lastResult: DrawResult | null
@@ -41,8 +43,11 @@ export interface DashboardPrizeSummary {
 
 export interface DashboardResponse {
   isEnabled: boolean
+  maxParticipants: number | null
+  scheduledOpenAt: string | null
   participantCount: number
   winnerCount: number
+  remainingParticipants: number | null
   prizeSummaries: DashboardPrizeSummary[]
 }
 
@@ -76,6 +81,8 @@ export interface DrawRecord {
   participantHash: string
   prizeName: string | null
   codeValue: string | null
+  contactEmail: string | null
+  emailStatus: string
   shownMessage: string
 }
 

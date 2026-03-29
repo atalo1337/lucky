@@ -4,6 +4,7 @@ import type { AppFunction } from '../_lib/types'
 
 interface DrawRequestBody {
   token?: string
+  email?: string
 }
 
 export const onRequestPost: AppFunction = async (context) => {
@@ -13,7 +14,16 @@ export const onRequestPost: AppFunction = async (context) => {
       return fail('缺少人机校验令牌。', 400, 'TOKEN_REQUIRED')
     }
 
-    const execution = await executeDraw(context.env, context.request, body.token)
+    if (!body.email) {
+      return fail('缺少接收中奖卡密的邮箱地址。', 400, 'EMAIL_REQUIRED')
+    }
+
+    const execution = await executeDraw(
+      context.env,
+      context.request,
+      body.token,
+      body.email,
+    )
     const headers = new Headers()
 
     if (execution.participantCookieHeader) {

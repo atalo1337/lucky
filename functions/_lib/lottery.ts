@@ -3,11 +3,18 @@ import { readSignedCookie } from './cookies'
 import { ensureDatabase, nowIso } from './db'
 import { requireSecret } from './env'
 import {
+  closeLottery,
+  countParticipants,
+  countSelectablePrizes,
+  maybeActivateScheduledLottery,
+} from './lottery-system'
+import {
   getClientIp,
   getRequestHashes,
   resolveParticipant,
 } from './participants'
 import { sha256 } from './security'
+import { sendWinnerEmail, validateEmailAddress } from './smtp'
 import { verifyTurnstile } from './turnstile'
 import type { AppEnv } from './types'
 
@@ -17,7 +24,6 @@ interface RawDrawRecord {
   shown_message: string
   prize_id: string | null
   prize_name: string | null
-  code_value: string | null
 }
 
 interface PrizeCandidate {
@@ -38,7 +44,7 @@ function mapDrawRecord(record: RawDrawRecord | null) {
     prizeId: record.prize_id,
     prizeName: record.prize_name,
     message: record.shown_message,
-    codeValue: record.code_value,
+    codeValue: null,
     createdAt: record.created_at,
   }
 }
@@ -52,11 +58,9 @@ async function getLatestResultByParticipant(env: AppEnv, participantHash: string
           dr.is_win,
           dr.shown_message,
           dr.prize_id,
-          p.name AS prize_name,
-          pc.code_value
+          p.name AS prize_name
         FROM draw_records dr
         LEFT JOIN prizes p ON p.id = dr.prize_id
-        LEFT JOIN prize_codes pc ON pc.id = dr.code_id
         WHERE dr.participant_hash = ?
         ORDER BY dr.created_at DESC
         LIMIT 1`,
@@ -67,21 +71,11 @@ async function getLatestResultByParticipant(env: AppEnv, participantHash: string
   return mapDrawRecord(record)
 }
 
-export async function getParticipantCount(env: AppEnv) {
-  const count = await env.DB
-    .prepare('SELECT COUNT(*) AS count FROM draw_records')
-    .first<{ count: number }>()
-
-  return Number(count?.count ?? 0)
-}
-
 export async function getLotteryStatus(env: AppEnv, request: Request) {
   await ensureDatabase(env)
 
-  const [settings, participantCountResult, publicPrizes] = await Promise.all([
-    env.DB
-      .prepare('SELECT is_enabled FROM lottery_settings WHERE id = 1')
-      .first<{ is_enabled: number }>(),
+  const settings = await maybeActivateScheduledLottery(env)
+  const [participantCountResult, publicPrizes] = await Promise.all([
     env.DB
       .prepare('SELECT COUNT(*) AS count FROM draw_records')
       .first<{ count: number }>(),
@@ -111,10 +105,16 @@ export async function getLotteryStatus(env: AppEnv, request: Request) {
   const lastResult = participantHash
     ? await getLatestResultByParticipant(env, participantHash)
     : null
+  const participantCount = Number(participantCountResult?.count ?? 0)
 
   return {
-    isEnabled: settings?.is_enabled === 1,
-    participantCount: Number(participantCountResult?.count ?? 0),
+    isEnabled: settings.isEnabled,
+    participantCount,
+    maxParticipants: settings.maxParticipants,
+    remainingParticipants:
+      settings.maxParticipants === null
+        ? null
+        : Math.max(settings.maxParticipants - participantCount, 0),
     siteKey: env.TURNSTILE_SITE_KEY ?? '',
     hasParticipated: Boolean(lastResult),
     lastResult,
@@ -149,8 +149,8 @@ async function selectPrize(env: AppEnv): Promise<PrizeCandidate | null> {
 
   const candidates = (rows.results ?? []).filter(
     (prize) =>
-      Number(prize.probability_percent) > 0 &&
-      Number(prize.available_codes ?? 0) > 0,
+      Number(prize.probability_percent) > 0
+      && Number(prize.available_codes ?? 0) > 0,
   )
 
   const random = nextPercentage()
@@ -207,18 +207,49 @@ async function reservePrizeCode(
   return null
 }
 
-export async function executeDraw(env: AppEnv, request: Request, token: string) {
+export async function executeDraw(
+  env: AppEnv,
+  request: Request,
+  token: string,
+  email: string,
+) {
   await ensureDatabase(env)
 
-  const settings = await env.DB
-    .prepare('SELECT is_enabled FROM lottery_settings WHERE id = 1')
-    .first<{ is_enabled: number }>()
+  const normalizedEmail = validateEmailAddress(email)
+  const settings = await maybeActivateScheduledLottery(env)
 
-  if (!settings || settings.is_enabled !== 1) {
+  if (!settings.isEnabled) {
     return {
       status: 403,
-      participantCount: await getParticipantCount(env),
+      participantCount: await countParticipants(env),
       message: '抽奖系统当前未开启。',
+      result: null,
+      participantCookieHeader: null,
+    }
+  }
+
+  const participantCountBefore = await countParticipants(env)
+  if (
+    settings.maxParticipants !== null
+    && participantCountBefore >= settings.maxParticipants
+  ) {
+    await closeLottery(env)
+    return {
+      status: 403,
+      participantCount: participantCountBefore,
+      message: '本轮抽奖人数已满，系统已自动关闭。',
+      result: null,
+      participantCookieHeader: null,
+    }
+  }
+
+  const selectablePrizeCount = await countSelectablePrizes(env)
+  if (selectablePrizeCount === 0) {
+    await closeLottery(env)
+    return {
+      status: 403,
+      participantCount: participantCountBefore,
+      message: '奖项卡密已经全部抽完，系统已自动关闭。',
       result: null,
       participantCookieHeader: null,
     }
@@ -231,8 +262,8 @@ export async function executeDraw(env: AppEnv, request: Request, token: string) 
   if (existingByParticipant) {
     return {
       status: 409,
-      participantCount: await getParticipantCount(env),
-      message: '你已经参与过抽奖了。',
+      participantCount: participantCountBefore,
+      message: '你已经参与过本轮抽奖了。',
       result: existingByParticipant,
       participantCookieHeader,
     }
@@ -251,8 +282,8 @@ export async function executeDraw(env: AppEnv, request: Request, token: string) 
   if (existingByFingerprint) {
     return {
       status: 409,
-      participantCount: await getParticipantCount(env),
-      message: '当前设备已经参与过抽奖了。',
+      participantCount: participantCountBefore,
+      message: '当前设备已经参与过本轮抽奖了。',
       result: null,
       participantCookieHeader,
     }
@@ -262,7 +293,7 @@ export async function executeDraw(env: AppEnv, request: Request, token: string) 
   if (!turnstilePassed) {
     return {
       status: 400,
-      participantCount: await getParticipantCount(env),
+      participantCount: participantCountBefore,
       message: '人机校验未通过，请刷新页面后重试。',
       result: null,
       participantCookieHeader: null,
@@ -278,6 +309,9 @@ export async function executeDraw(env: AppEnv, request: Request, token: string) 
   let codeId: string | null = null
   let codeValue: string | null = null
   let shownMessage = DEFAULT_LOSE_MESSAGE
+  let emailStatus = 'not_applicable'
+  let emailSentAt: string | null = null
+  let emailError: string | null = null
 
   if (selectedPrize) {
     const reservedCode = await reservePrizeCode(env, selectedPrize.id, drawId)
@@ -287,6 +321,7 @@ export async function executeDraw(env: AppEnv, request: Request, token: string) 
       prizeName = selectedPrize.name
       codeId = reservedCode.codeId
       codeValue = reservedCode.codeValue
+      emailStatus = 'pending'
       shownMessage = selectedPrize.win_message
     }
   }
@@ -295,8 +330,20 @@ export async function executeDraw(env: AppEnv, request: Request, token: string) 
     await env.DB
       .prepare(
         `INSERT INTO draw_records (
-          id, participant_hash, ip_hash, ua_hash, is_win, prize_id, code_id, shown_message, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          id,
+          participant_hash,
+          ip_hash,
+          ua_hash,
+          is_win,
+          prize_id,
+          code_id,
+          contact_email,
+          email_status,
+          email_sent_at,
+          email_error,
+          shown_message,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         drawId,
@@ -306,6 +353,10 @@ export async function executeDraw(env: AppEnv, request: Request, token: string) 
         isWin ? 1 : 0,
         prizeId,
         codeId,
+        normalizedEmail,
+        emailStatus,
+        emailSentAt,
+        emailError,
         shownMessage,
         createdAt,
       )
@@ -325,16 +376,54 @@ export async function executeDraw(env: AppEnv, request: Request, token: string) 
     throw error
   }
 
+  if (isWin && prizeName && codeValue) {
+    try {
+      await sendWinnerEmail(env, {
+        to: normalizedEmail,
+        prizeName,
+        codeValue,
+        drawTime: createdAt,
+      })
+
+      emailStatus = 'sent'
+      emailSentAt = nowIso()
+      shownMessage = `恭喜中奖，卡密已经发送至 ${normalizedEmail}，请注意查收邮件。`
+    } catch (error) {
+      emailStatus = 'failed'
+      emailError = error instanceof Error ? error.message : '邮件发送失败'
+      shownMessage = '恭喜中奖，但卡密邮件发送失败，请联系管理员处理。'
+    }
+
+    await env.DB
+      .prepare(
+        `UPDATE draw_records
+         SET shown_message = ?, email_status = ?, email_sent_at = ?, email_error = ?
+         WHERE id = ?`,
+      )
+      .bind(shownMessage, emailStatus, emailSentAt, emailError, drawId)
+      .run()
+  }
+
+  const participantCount = participantCountBefore + 1
+  if (
+    settings.maxParticipants !== null
+    && participantCount >= settings.maxParticipants
+  ) {
+    await closeLottery(env)
+  } else if ((await countSelectablePrizes(env)) === 0) {
+    await closeLottery(env)
+  }
+
   return {
     status: 200,
-    participantCount: await getParticipantCount(env),
+    participantCount,
     message: shownMessage,
     result: {
       isWin,
       prizeId,
       prizeName,
       message: shownMessage,
-      codeValue,
+      codeValue: null,
       createdAt,
     },
     participantCookieHeader,

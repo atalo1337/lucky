@@ -5,6 +5,12 @@ export interface AppEnv {
   SESSION_SECRET?: string
   TURNSTILE_SECRET_KEY?: string
   TURNSTILE_SITE_KEY?: string
+  SMTP_HOST?: string
+  SMTP_PORT?: string
+  SMTP_USERNAME?: string
+  SMTP_PASSWORD?: string
+  SMTP_FROM_EMAIL?: string
+  SMTP_FROM_NAME?: string
 }
 
 export interface AdminRecord {

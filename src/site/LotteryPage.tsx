@@ -41,12 +41,17 @@ function loadTurnstileScript() {
   })
 }
 
+function isValidEmail(email: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim().toLowerCase())
+}
+
 export function LotteryPage() {
   const [status, setStatus] = useState<LotteryStatusResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [result, setResult] = useState<DrawResult | null>(null)
+  const [email, setEmail] = useState('')
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
   const [turnstileReady, setTurnstileReady] = useState(false)
   const widgetRef = useRef<string | null>(null)
@@ -120,6 +125,11 @@ export function LotteryPage() {
   async function handleDraw(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
+    if (!isValidEmail(email)) {
+      setMessage('请输入有效的邮箱地址，用于接收中奖卡密。')
+      return
+    }
+
     if (!turnstileToken) {
       setMessage('请先完成人机校验。')
       return
@@ -134,7 +144,10 @@ export function LotteryPage() {
         result: DrawResult
       }>('/api/draw', {
         method: 'POST',
-        body: JSON.stringify({ token: turnstileToken }),
+        body: JSON.stringify({
+          token: turnstileToken,
+          email,
+        }),
       })
 
       setResult(draw.result)
@@ -143,6 +156,10 @@ export function LotteryPage() {
           ? {
               ...current,
               participantCount: draw.participantCount,
+              remainingParticipants:
+                current.maxParticipants === null
+                  ? null
+                  : Math.max(current.maxParticipants - draw.participantCount, 0),
               hasParticipated: true,
               lastResult: draw.result,
               publicPrizes: current.publicPrizes.map((prize) =>
@@ -183,6 +200,18 @@ export function LotteryPage() {
     return '立即抽奖'
   }, [status?.hasParticipated, status?.isEnabled, submitting])
 
+  const limitLabel = useMemo(() => {
+    if (!status) {
+      return '读取中'
+    }
+
+    if (status.maxParticipants === null) {
+      return '不限人数'
+    }
+
+    return `剩余 ${status.remainingParticipants ?? 0}`
+  }, [status])
+
   return (
     <main className="page shell">
       <section className="hero-panel lottery-hero">
@@ -190,7 +219,8 @@ export function LotteryPage() {
           <span className="eyebrow">Cloudflare Pages 抽奖站</span>
           <h1>星火抽奖站</h1>
           <p className="lead">
-            普通用户只能参与抽奖并即时查看自己的中奖结果，所有运营操作都在独立的管理员后台完成。
+            普通用户可以直接参与抽奖，查看各奖项中奖人数。中奖卡密不在页面回显，
+            系统会自动发送到你填写的邮箱。
           </p>
           <div className="hero-stats">
             <div className="metric-card">
@@ -202,15 +232,15 @@ export function LotteryPage() {
               <strong>{status?.participantCount ?? 0}</strong>
             </div>
             <div className="metric-card">
-              <span className="metric-label">开放奖项</span>
-              <strong>{status?.publicPrizes.length ?? 0}</strong>
+              <span className="metric-label">人数限制</span>
+              <strong>{limitLabel}</strong>
             </div>
           </div>
         </div>
         <div className="draw-card">
           <div className="card-header">
             <h2>立即参与</h2>
-            <p>活动采用匿名限一次模式，抽奖前需要完成人机校验。</p>
+            <p>每轮每人限参与一次。若中奖，卡密会发送到你填写的邮箱。</p>
           </div>
 
           {loading ? (
@@ -219,9 +249,19 @@ export function LotteryPage() {
             <form className="draw-form" onSubmit={handleDraw}>
               <div className="status-banner">
                 {status?.isEnabled
-                  ? '活动已开启，准备好后点击按钮参与。'
-                  : '管理员当前已关闭抽奖系统，请稍后再来。'}
+                  ? '活动已开启，填写邮箱并完成校验后即可参与抽奖。'
+                  : '抽奖系统当前未开启，请稍后再来。'}
               </div>
+
+              <label className="field">
+                <span>接收中奖卡密的邮箱</span>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="请输入常用邮箱"
+                />
+              </label>
 
               {status?.siteKey ? (
                 <div className="turnstile-block" ref={turnstileContainerRef} />
@@ -234,13 +274,13 @@ export function LotteryPage() {
               <button
                 className="primary-button"
                 disabled={
-                  loading ||
-                  submitting ||
-                  !status?.isEnabled ||
-                  status.hasParticipated ||
-                  !status.siteKey ||
-                  !turnstileReady ||
-                  !turnstileToken
+                  loading
+                  || submitting
+                  || !status?.isEnabled
+                  || status.hasParticipated
+                  || !status.siteKey
+                  || !turnstileReady
+                  || !turnstileToken
                 }
                 type="submit"
               >
@@ -257,7 +297,7 @@ export function LotteryPage() {
         <article className="panel">
           <div className="section-title">
             <h2>开放奖项</h2>
-            <span>仅展示已启用的奖项名称</span>
+            <span>普通用户可以直接看到各奖项当前中奖人数</span>
           </div>
           <div className="prize-grid">
             {status?.publicPrizes.length ? (
@@ -275,7 +315,7 @@ export function LotteryPage() {
         <article className="panel">
           <div className="section-title">
             <h2>我的抽奖结果</h2>
-            <span>站内即时展示中奖信息</span>
+            <span>中奖后卡密会通过邮件发送，不在页面直接显示</span>
           </div>
           {result ? (
             <div className={`result-card ${result.isWin ? 'win' : 'lose'}`}>
@@ -291,7 +331,9 @@ export function LotteryPage() {
               <small>抽奖时间：{new Date(result.createdAt).toLocaleString('zh-CN')}</small>
             </div>
           ) : (
-            <div className="empty-block">你还没有参与抽奖，完成校验后就能试试手气。</div>
+            <div className="empty-block">
+              你还没有参与抽奖，填写邮箱并完成校验后就能试试手气。
+            </div>
           )}
         </article>
       </section>

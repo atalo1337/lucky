@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 import { apiRequest, apiUpload } from '../lib/api'
 import type {
@@ -18,6 +18,11 @@ interface PasswordFormState {
   currentPassword: string
   newPassword: string
   confirmPassword: string
+}
+
+interface SettingsFormState {
+  maxParticipants: string
+  scheduledOpenAt: string
 }
 
 interface PrizeDraft {
@@ -43,12 +48,39 @@ const emptyPasswordForm: PasswordFormState = {
   confirmPassword: '',
 }
 
+const emptySettingsForm: SettingsFormState = {
+  maxParticipants: '',
+  scheduledOpenAt: '',
+}
+
 const emptyCreatePrizeForm = {
   name: '',
   probabilityPercent: '0',
   winMessage: '',
   isActive: true,
   sortOrder: '0',
+}
+
+function toDateTimeLocalValue(value: string | null) {
+  if (!value) {
+    return ''
+  }
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+
+  const pad = (input: number) => String(input).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function toSettingsFormState(dashboard: DashboardResponse): SettingsFormState {
+  return {
+    maxParticipants:
+      dashboard.maxParticipants === null ? '' : String(dashboard.maxParticipants),
+    scheduledOpenAt: toDateTimeLocalValue(dashboard.scheduledOpenAt),
+  }
 }
 
 function toPrizeDraft(prize: AdminPrize): PrizeDraft {
@@ -65,6 +97,19 @@ function toPrizeDraft(prize: AdminPrize): PrizeDraft {
   }
 }
 
+function formatEmailStatus(status: DrawRecord['emailStatus']) {
+  switch (status) {
+    case 'sent':
+      return '已发送'
+    case 'failed':
+      return '发送失败'
+    case 'pending':
+      return '发送中'
+    default:
+      return '不适用'
+  }
+}
+
 export function AdminPage() {
   const [me, setMe] = useState<AdminMeResponse | null>(null)
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null)
@@ -74,12 +119,30 @@ export function AdminPage() {
   const [expandedPrizeId, setExpandedPrizeId] = useState<string | null>(null)
   const [loginForm, setLoginForm] = useState<LoginFormState>(emptyLoginForm)
   const [passwordForm, setPasswordForm] = useState<PasswordFormState>(emptyPasswordForm)
+  const [settingsForm, setSettingsForm] = useState<SettingsFormState>(emptySettingsForm)
   const [createPrizeForm, setCreatePrizeForm] = useState(emptyCreatePrizeForm)
   const [selectedFiles, setSelectedFiles] = useState<Record<string, File | null>>({})
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const applyDashboard = useCallback((nextDashboard: DashboardResponse) => {
+    setDashboard(nextDashboard)
+    setSettingsForm(toSettingsFormState(nextDashboard))
+  }, [])
+
+  const loadAdminData = useCallback(async () => {
+    const [nextDashboard, nextPrizes, nextRecords] = await Promise.all([
+      apiRequest<DashboardResponse>('/api/admin/dashboard'),
+      apiRequest<AdminPrize[]>('/api/admin/prizes'),
+      apiRequest<DrawRecord[]>('/api/admin/draw-records'),
+    ])
+
+    applyDashboard(nextDashboard)
+    setPrizes(nextPrizes.map(toPrizeDraft))
+    setRecords(nextRecords)
+  }, [applyDashboard])
 
   useEffect(() => {
     let active = true
@@ -118,19 +181,7 @@ export function AdminPage() {
     return () => {
       active = false
     }
-  }, [])
-
-  async function loadAdminData() {
-    const [nextDashboard, nextPrizes, nextRecords] = await Promise.all([
-      apiRequest<DashboardResponse>('/api/admin/dashboard'),
-      apiRequest<AdminPrize[]>('/api/admin/prizes'),
-      apiRequest<DrawRecord[]>('/api/admin/draw-records'),
-    ])
-
-    setDashboard(nextDashboard)
-    setPrizes(nextPrizes.map(toPrizeDraft))
-    setRecords(nextRecords)
-  }
+  }, [loadAdminData])
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -164,6 +215,7 @@ export function AdminPage() {
       setDashboard(null)
       setPrizes([])
       setRecords([])
+      setSettingsForm(emptySettingsForm)
       setPrizeCodes({})
       setExpandedPrizeId(null)
       setNotice('已退出登录。')
@@ -221,6 +273,34 @@ export function AdminPage() {
     }
   }
 
+  async function saveLotterySettings() {
+    setBusy(true)
+    setError(null)
+
+    try {
+      const updated = await apiRequest<DashboardResponse>('/api/admin/settings', {
+        method: 'PUT',
+        body: JSON.stringify({
+          maxParticipants:
+            settingsForm.maxParticipants.trim() === ''
+              ? null
+              : Number(settingsForm.maxParticipants),
+          scheduledOpenAt:
+            settingsForm.scheduledOpenAt.trim() === ''
+              ? null
+              : new Date(settingsForm.scheduledOpenAt).toISOString(),
+        }),
+      })
+
+      applyDashboard(updated)
+      setNotice('抽奖设置已保存。')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '抽奖设置保存失败。')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function toggleLotterySystem() {
     if (!dashboard) {
       return
@@ -234,8 +314,12 @@ export function AdminPage() {
         method: 'PUT',
         body: JSON.stringify({ isEnabled: !dashboard.isEnabled }),
       })
-      setDashboard(updated)
-      setNotice(updated.isEnabled ? '抽奖系统已开启。' : '抽奖系统已关闭。')
+      applyDashboard(updated)
+      setNotice(
+        updated.isEnabled
+          ? '新一轮抽奖已开启，上一轮抽奖记录和卡密状态已重置。'
+          : '抽奖系统已关闭。',
+      )
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '系统开关更新失败。')
     } finally {
@@ -602,12 +686,61 @@ export function AdminPage() {
               <strong>{dashboard?.winnerCount ?? 0}</strong>
             </div>
           </div>
+          <div className="inline-fields">
+            <label className="field">
+              <span>抽奖人数上限</span>
+              <input
+                value={settingsForm.maxParticipants}
+                onChange={(event) =>
+                  setSettingsForm((current) => ({
+                    ...current,
+                    maxParticipants: event.target.value,
+                  }))
+                }
+                min="1"
+                placeholder="留空表示不限人数"
+                type="number"
+              />
+            </label>
+            <label className="field">
+              <span>自动开启时间</span>
+              <input
+                type="datetime-local"
+                value={settingsForm.scheduledOpenAt}
+                onChange={(event) =>
+                  setSettingsForm((current) => ({
+                    ...current,
+                    scheduledOpenAt: event.target.value,
+                  }))
+                }
+              />
+            </label>
+          </div>
+          <button
+            className="secondary-button"
+            disabled={busy}
+            onClick={() => void saveLotterySettings()}
+            type="button"
+          >
+            保存抽奖设置
+          </button>
           <button className="primary-button" disabled={busy} onClick={() => void toggleLotterySystem()}>
             {dashboard?.isEnabled ? '关闭抽奖系统' : '开启抽奖系统'}
           </button>
           <p className="inline-note">
             当前启用奖项的概率总和：{activeProbability.toFixed(2)}%
           </p>
+          <p className="inline-note">
+            {!dashboard || dashboard.maxParticipants === null
+              ? '当前未限制抽奖人数。'
+              : `当前最多允许 ${dashboard.maxParticipants} 人参与，剩余 ${dashboard.remainingParticipants ?? 0} 个名额。`}
+          </p>
+          <p className="inline-note">
+            {dashboard?.scheduledOpenAt
+              ? `已设置自动开启时间：${new Date(dashboard.scheduledOpenAt).toLocaleString('zh-CN')}，到点后首次访问会自动开启新一轮抽奖。`
+              : '当前未设置自动开启时间。'}
+          </p>
+          <p className="inline-note">当人数达到上限或卡密全部抽完时，系统会自动关闭抽奖。</p>
           {dashboard?.prizeSummaries.length ? (
             <div className="prize-grid">
               {dashboard.prizeSummaries.map((prize) => (
@@ -868,7 +1001,8 @@ export function AdminPage() {
             <span>结果</span>
             <span>奖项</span>
             <span>卡密</span>
-            <span>参与标识</span>
+            <span>邮箱</span>
+            <span>邮件状态</span>
             <span>展示文案</span>
           </div>
           {records.length ? (
@@ -878,7 +1012,8 @@ export function AdminPage() {
                 <span>{record.isWin ? '中奖' : '未中奖'}</span>
                 <span>{record.prizeName ?? '谢谢参与'}</span>
                 <span>{record.codeValue ?? '-'}</span>
-                <span className="mono">{record.participantHash.slice(0, 12)}...</span>
+                <span className="mono">{record.contactEmail ?? '-'}</span>
+                <span>{formatEmailStatus(record.emailStatus)}</span>
                 <span>{record.shownMessage}</span>
               </div>
             ))

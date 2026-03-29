@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS admins (
 CREATE TABLE IF NOT EXISTS lottery_settings (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   is_enabled INTEGER NOT NULL DEFAULT 0,
+  max_participants INTEGER,
+  scheduled_open_at TEXT,
   updated_at TEXT NOT NULL
 );
 
@@ -22,7 +24,8 @@ CREATE TABLE IF NOT EXISTS prizes (
   is_active INTEGER NOT NULL DEFAULT 1,
   sort_order INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS prize_codes (
@@ -45,6 +48,10 @@ CREATE TABLE IF NOT EXISTS draw_records (
   is_win INTEGER NOT NULL,
   prize_id TEXT,
   code_id TEXT,
+  contact_email TEXT,
+  email_status TEXT NOT NULL DEFAULT 'not_applicable',
+  email_sent_at TEXT,
+  email_error TEXT,
   shown_message TEXT NOT NULL,
   created_at TEXT NOT NULL,
   FOREIGN KEY (prize_id) REFERENCES prizes(id),
