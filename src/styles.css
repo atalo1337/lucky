@@ -191,6 +191,18 @@ a {
     opacity 0.18s ease;
 }
 
+.danger-button {
+  border: 0;
+  border-radius: 16px;
+  padding: 14px 18px;
+  font-weight: 700;
+  color: #7a1220;
+  background: rgba(209, 51, 74, 0.12);
+  transition:
+    transform 0.18s ease,
+    opacity 0.18s ease;
+}
+
 .primary-button {
   background: linear-gradient(135deg, #ffb13c, #ff7e36);
   color: #1f1306;
@@ -203,12 +215,14 @@ a {
 }
 
 .primary-button:hover,
-.secondary-button:hover {
+.secondary-button:hover,
+.danger-button:hover {
   transform: translateY(-1px);
 }
 
 .primary-button:disabled,
-.secondary-button:disabled {
+.secondary-button:disabled,
+.danger-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
   transform: none;
@@ -401,6 +415,49 @@ a {
   align-items: stretch;
 }
 
+.prize-editor {
+  display: grid;
+  gap: 12px;
+}
+
+.code-manager {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 20px;
+  background: rgba(243, 247, 255, 0.92);
+  border: 1px solid rgba(19, 34, 56, 0.08);
+}
+
+.code-manager-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  color: #5d6e87;
+}
+
+.code-list {
+  display: grid;
+  gap: 10px;
+}
+
+.code-row {
+  display: grid;
+  grid-template-columns: 1.5fr 0.7fr 1fr 1fr 0.8fr;
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.empty-block.light {
+  background: rgba(243, 247, 255, 0.92);
+  color: #52647d;
+  border: 1px solid rgba(19, 34, 56, 0.08);
+}
+
 .cell-stack {
   display: flex;
   flex-direction: column;
@@ -427,7 +484,8 @@ a {
   }
 
   .table-row,
-  .records-grid .table-row {
+  .records-grid .table-row,
+  .code-row {
     grid-template-columns: 1fr;
   }
 

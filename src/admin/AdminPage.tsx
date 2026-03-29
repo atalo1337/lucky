@@ -6,6 +6,7 @@ import type {
   AdminPrize,
   DashboardResponse,
   DrawRecord,
+  PrizeCode,
 } from '../lib/types'
 
 interface LoginFormState {
@@ -67,6 +68,8 @@ export function AdminPage() {
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null)
   const [prizes, setPrizes] = useState<PrizeDraft[]>([])
   const [records, setRecords] = useState<DrawRecord[]>([])
+  const [prizeCodes, setPrizeCodes] = useState<Record<string, PrizeCode[]>>({})
+  const [expandedPrizeId, setExpandedPrizeId] = useState<string | null>(null)
   const [loginForm, setLoginForm] = useState<LoginFormState>(emptyLoginForm)
   const [passwordForm, setPasswordForm] = useState<PasswordFormState>(emptyPasswordForm)
   const [createPrizeForm, setCreatePrizeForm] = useState(emptyCreatePrizeForm)
@@ -159,6 +162,8 @@ export function AdminPage() {
       setDashboard(null)
       setPrizes([])
       setRecords([])
+      setPrizeCodes({})
+      setExpandedPrizeId(null)
       setNotice('已退出登录。')
       setError(null)
     } catch (cause) {
@@ -203,6 +208,9 @@ export function AdminPage() {
     setError(null)
     try {
       await loadAdminData()
+      if (expandedPrizeId) {
+        await loadPrizeCodes(expandedPrizeId)
+      }
       setNotice('数据已刷新。')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '刷新失败。')
@@ -283,6 +291,36 @@ export function AdminPage() {
     }
   }
 
+  async function deletePrize(prize: PrizeDraft) {
+    const confirmed = window.confirm(
+      `确认删除奖项「${prize.name}」吗？如果该奖项已有中奖记录或已发放卡密，系统会拒绝删除。`,
+    )
+    if (!confirmed) {
+      return
+    }
+
+    setBusy(true)
+    setError(null)
+
+    try {
+      await apiRequest<{ id: string; name: string }>(`/api/admin/prizes/${prize.id}`, {
+        method: 'DELETE',
+      })
+      setPrizeCodes((current) => {
+        const next = { ...current }
+        delete next[prize.id]
+        return next
+      })
+      setExpandedPrizeId((current) => (current === prize.id ? null : current))
+      await loadAdminData()
+      setNotice(`奖项「${prize.name}」已删除。`)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '删除奖项失败。')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function uploadCodes(prizeId: string) {
     const file = selectedFiles[prizeId]
     if (!file) {
@@ -302,9 +340,61 @@ export function AdminPage() {
       )
       setSelectedFiles((current) => ({ ...current, [prizeId]: null }))
       await loadAdminData()
+      if (expandedPrizeId === prizeId) {
+        await loadPrizeCodes(prizeId)
+      }
       setNotice('卡密上传完成。')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '卡密上传失败。')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function loadPrizeCodes(prizeId: string) {
+    const codes = await apiRequest<PrizeCode[]>(`/api/admin/prizes/${prizeId}/codes?limit=20`)
+    setPrizeCodes((current) => ({
+      ...current,
+      [prizeId]: codes,
+    }))
+  }
+
+  async function togglePrizeCodes(prizeId: string) {
+    if (expandedPrizeId === prizeId) {
+      setExpandedPrizeId(null)
+      return
+    }
+
+    setBusy(true)
+    setError(null)
+
+    try {
+      await loadPrizeCodes(prizeId)
+      setExpandedPrizeId(prizeId)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '读取卡密列表失败。')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function deletePrizeCode(prize: PrizeDraft, code: PrizeCode) {
+    const confirmed = window.confirm(`确认删除卡密「${code.codeValue}」吗？`)
+    if (!confirmed) {
+      return
+    }
+
+    setBusy(true)
+    setError(null)
+
+    try {
+      await apiRequest<PrizeCode>(`/api/admin/prizes/${prize.id}/codes/${code.id}`, {
+        method: 'DELETE',
+      })
+      await Promise.all([loadAdminData(), loadPrizeCodes(prize.id)])
+      setNotice(`已删除奖项「${prize.name}」的一条未使用卡密。`)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '删除卡密失败。')
     } finally {
       setBusy(false)
     }
@@ -603,7 +693,7 @@ export function AdminPage() {
       <section className="panel">
         <div className="section-title">
           <h2>奖项与卡密</h2>
-          <span>每个奖项独立维护概率、文案和卡密池</span>
+          <span>支持保存、上传、删除奖项，以及删除未使用卡密</span>
         </div>
         <div className="table-grid">
           <div className="table-head table-row">
@@ -616,89 +706,141 @@ export function AdminPage() {
           </div>
           {prizes.length ? (
             prizes.map((prize) => (
-              <div className="table-row editable-row" key={prize.id}>
-                <div className="cell-stack">
-                  <input
-                    value={prize.name}
-                    onChange={(event) =>
-                      updatePrizeField(prize.id, 'name', event.target.value)
-                    }
-                    type="text"
-                  />
-                  <small>排序：{prize.sortOrder}</small>
-                </div>
-                <input
-                  value={prize.probabilityPercent}
-                  onChange={(event) =>
-                    updatePrizeField(prize.id, 'probabilityPercent', event.target.value)
-                  }
-                  max="100"
-                  min="0"
-                  step="0.01"
-                  type="number"
-                />
-                <textarea
-                  value={prize.winMessage}
-                  onChange={(event) =>
-                    updatePrizeField(prize.id, 'winMessage', event.target.value)
-                  }
-                />
-                <div className="cell-stack">
-                  <label className="toggle-field">
+              <div className="prize-editor" key={prize.id}>
+                <div className="table-row editable-row">
+                  <div className="cell-stack">
                     <input
-                      checked={prize.isActive}
+                      value={prize.name}
                       onChange={(event) =>
-                        updatePrizeField(prize.id, 'isActive', event.target.checked)
+                        updatePrizeField(prize.id, 'name', event.target.value)
                       }
-                      type="checkbox"
+                      type="text"
                     />
-                    <span>{prize.isActive ? '启用中' : '已停用'}</span>
-                  </label>
+                    <small>排序：{prize.sortOrder}</small>
+                  </div>
                   <input
-                    value={prize.sortOrder}
+                    value={prize.probabilityPercent}
                     onChange={(event) =>
-                      updatePrizeField(prize.id, 'sortOrder', event.target.value)
+                      updatePrizeField(prize.id, 'probabilityPercent', event.target.value)
                     }
+                    max="100"
+                    min="0"
+                    step="0.01"
                     type="number"
                   />
-                </div>
-                <div className="cell-stack">
-                  <strong>剩余 {prize.availableCodes}</strong>
-                  <small>已发放 {prize.usedCodes}</small>
-                  <input
-                    accept=".txt,.csv,text/plain,text/csv"
-                    onChange={(event: ChangeEvent<HTMLInputElement>) => {
-                      const file = event.target.files?.[0] ?? null
-                      setSelectedFiles((current) => ({
-                        ...current,
-                        [prize.id]: file,
-                      }))
-                    }}
-                    type="file"
+                  <textarea
+                    value={prize.winMessage}
+                    onChange={(event) =>
+                      updatePrizeField(prize.id, 'winMessage', event.target.value)
+                    }
                   />
+                  <div className="cell-stack">
+                    <label className="toggle-field">
+                      <input
+                        checked={prize.isActive}
+                        onChange={(event) =>
+                          updatePrizeField(prize.id, 'isActive', event.target.checked)
+                        }
+                        type="checkbox"
+                      />
+                      <span>{prize.isActive ? '启用中' : '已停用'}</span>
+                    </label>
+                    <input
+                      value={prize.sortOrder}
+                      onChange={(event) =>
+                        updatePrizeField(prize.id, 'sortOrder', event.target.value)
+                      }
+                      type="number"
+                    />
+                  </div>
+                  <div className="cell-stack">
+                    <strong>剩余 {prize.availableCodes}</strong>
+                    <small>已发放 {prize.usedCodes}</small>
+                    <input
+                      accept=".txt,.csv,text/plain,text/csv"
+                      onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                        const file = event.target.files?.[0] ?? null
+                        setSelectedFiles((current) => ({
+                          ...current,
+                          [prize.id]: file,
+                        }))
+                      }}
+                      type="file"
+                    />
+                  </div>
+                  <div className="cell-stack">
+                    <button
+                      className="secondary-button"
+                      disabled={busy}
+                      onClick={() => void savePrize(prize)}
+                      type="button"
+                    >
+                      保存奖项
+                    </button>
+                    <button
+                      className="secondary-button"
+                      disabled={busy}
+                      onClick={() => void uploadCodes(prize.id)}
+                      type="button"
+                    >
+                      上传卡密
+                    </button>
+                    <button
+                      className="secondary-button"
+                      disabled={busy}
+                      onClick={() => void togglePrizeCodes(prize.id)}
+                      type="button"
+                    >
+                      {expandedPrizeId === prize.id ? '收起卡密' : '查看卡密'}
+                    </button>
+                    <button
+                      className="danger-button"
+                      disabled={busy}
+                      onClick={() => void deletePrize(prize)}
+                      type="button"
+                    >
+                      删除奖项
+                    </button>
+                  </div>
                 </div>
-                <div className="cell-stack">
-                  <button
-                    className="secondary-button"
-                    disabled={busy}
-                    onClick={() => void savePrize(prize)}
-                    type="button"
-                  >
-                    保存奖项
-                  </button>
-                  <button
-                    className="secondary-button"
-                    disabled={busy}
-                    onClick={() => void uploadCodes(prize.id)}
-                    type="button"
-                  >
-                    上传卡密
-                  </button>
-                </div>
+
+                {expandedPrizeId === prize.id ? (
+                  <div className="code-manager">
+                    <div className="code-manager-head">
+                      <strong>卡密列表</strong>
+                      <span>仅支持删除未使用卡密，默认显示最近 20 条</span>
+                    </div>
+                    {prizeCodes[prize.id]?.length ? (
+                      <div className="code-list">
+                        {prizeCodes[prize.id].map((code) => (
+                          <div className="code-row" key={code.id}>
+                            <div className="cell-stack">
+                              <strong className="mono">{code.codeValue}</strong>
+                              <small>批次：{code.importBatch}</small>
+                            </div>
+                            <span>{code.status === 'used' ? '已使用' : '未使用'}</span>
+                            <span>{new Date(code.createdAt).toLocaleString('zh-CN')}</span>
+                            <span>{code.usedAt ? new Date(code.usedAt).toLocaleString('zh-CN') : '-'}</span>
+                            <button
+                              className="danger-button"
+                              disabled={busy || code.status === 'used'}
+                              onClick={() => void deletePrizeCode(prize, code)}
+                              type="button"
+                            >
+                              删除卡密
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="empty-block light">这个奖项暂时还没有卡密。</div>
+                    )}
+                  </div>
+                ) : null}
               </div>
             ))
           ) : (
-            <div className="empty-block">还没有配置任何奖项。</div>
+            <div className="empty-block light">还没有配置任何奖项。</div>
           )}
         </div>
       </section>
@@ -729,7 +871,7 @@ export function AdminPage() {
               </div>
             ))
           ) : (
-            <div className="empty-block">暂时还没有抽奖记录。</div>
+            <div className="empty-block light">暂时还没有抽奖记录。</div>
           )}
         </div>
       </section>

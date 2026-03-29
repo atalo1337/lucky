@@ -57,6 +57,15 @@ export interface AdminPrize {
   updatedAt: string
 }
 
+export interface PrizeCode {
+  id: string
+  codeValue: string
+  status: 'unused' | 'used'
+  importBatch: string
+  createdAt: string
+  usedAt: string | null
+}
+
 export interface DrawRecord {
   id: string
   createdAt: string

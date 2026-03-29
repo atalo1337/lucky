@@ -9,6 +9,15 @@ export interface PrizeInput {
   sortOrder: number
 }
 
+export interface PrizeCodeRecord {
+  id: string
+  codeValue: string
+  status: 'unused' | 'used'
+  importBatch: string
+  createdAt: string
+  usedAt: string | null
+}
+
 export function validatePrizeInput(input: PrizeInput) {
   if (!input.name.trim()) {
     throw new Error('奖项名称不能为空。')
@@ -155,5 +164,119 @@ export async function updatePrize(env: AppEnv, prizeId: string, input: PrizeInpu
 
   if ((result.meta?.changes ?? 0) === 0) {
     throw new Error('奖项不存在。')
+  }
+}
+
+export async function deletePrize(env: AppEnv, prizeId: string) {
+  await ensureDatabase(env)
+
+  const [prize, drawCount, usedCodeCount] = await Promise.all([
+    env.DB
+      .prepare('SELECT id, name FROM prizes WHERE id = ?')
+      .bind(prizeId)
+      .first<{ id: string; name: string }>(),
+    env.DB
+      .prepare('SELECT COUNT(*) AS count FROM draw_records WHERE prize_id = ?')
+      .bind(prizeId)
+      .first<{ count: number }>(),
+    env.DB
+      .prepare(
+        `SELECT COUNT(*) AS count
+         FROM prize_codes
+         WHERE prize_id = ? AND status = 'used'`,
+      )
+      .bind(prizeId)
+      .first<{ count: number }>(),
+  ])
+
+  if (!prize) {
+    throw new Error('奖项不存在。')
+  }
+
+  if (Number(drawCount?.count ?? 0) > 0 || Number(usedCodeCount?.count ?? 0) > 0) {
+    throw new Error('该奖项已有抽奖记录或已发放卡密，不能直接删除，请先停用后保留历史数据。')
+  }
+
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM prize_codes WHERE prize_id = ?').bind(prizeId),
+    env.DB.prepare('DELETE FROM prizes WHERE id = ?').bind(prizeId),
+  ])
+
+  return prize
+}
+
+export async function listPrizeCodes(
+  env: AppEnv,
+  prizeId: string,
+  limit = 20,
+): Promise<PrizeCodeRecord[]> {
+  await ensureDatabase(env)
+
+  const boundedLimit = Math.min(Math.max(limit, 1), 100)
+  const rows = await env.DB
+    .prepare(
+      `SELECT
+        id,
+        code_value AS codeValue,
+        status,
+        import_batch AS importBatch,
+        created_at AS createdAt,
+        used_at AS usedAt
+      FROM prize_codes
+      WHERE prize_id = ?
+      ORDER BY status ASC, created_at DESC
+      LIMIT ?`,
+    )
+    .bind(prizeId, boundedLimit)
+    .all<PrizeCodeRecord>()
+
+  return (rows.results ?? []).map((row) => ({
+    ...row,
+    status: row.status === 'used' ? 'used' : 'unused',
+  }))
+}
+
+export async function deletePrizeCode(
+  env: AppEnv,
+  prizeId: string,
+  codeId: string,
+): Promise<PrizeCodeRecord> {
+  await ensureDatabase(env)
+
+  const code = await env.DB
+    .prepare(
+      `SELECT
+        id,
+        code_value AS codeValue,
+        status,
+        import_batch AS importBatch,
+        created_at AS createdAt,
+        used_at AS usedAt
+      FROM prize_codes
+      WHERE id = ? AND prize_id = ?`,
+    )
+    .bind(codeId, prizeId)
+    .first<PrizeCodeRecord>()
+
+  if (!code) {
+    throw new Error('卡密不存在。')
+  }
+
+  if (code.status === 'used') {
+    throw new Error('已发放的卡密不能删除，以免影响中奖记录。')
+  }
+
+  const result = await env.DB
+    .prepare('DELETE FROM prize_codes WHERE id = ? AND prize_id = ? AND status = \'unused\'')
+    .bind(codeId, prizeId)
+    .run()
+
+  if ((result.meta?.changes ?? 0) === 0) {
+    throw new Error('卡密删除失败，请刷新后重试。')
+  }
+
+  return {
+    ...code,
+    status: 'unused',
   }
 }
