@@ -78,7 +78,6 @@ export interface DrawRecord {
   id: string
   createdAt: string
   isWin: boolean
-  participantHash: string
   prizeName: string | null
   codeValue: string | null
   contactEmail: string | null

@@ -9,7 +9,6 @@ export const onRequestGet: AppFunction = async (context) => {
           dr.id,
           dr.created_at AS createdAt,
           dr.is_win AS isWin,
-          dr.participant_hash AS participantHash,
           p.name AS prizeName,
           pc.code_value AS codeValue,
           dr.contact_email AS contactEmail,
@@ -25,7 +24,6 @@ export const onRequestGet: AppFunction = async (context) => {
         id: string
         createdAt: string
         isWin: number
-        participantHash: string
         prizeName: string | null
         codeValue: string | null
         contactEmail: string | null

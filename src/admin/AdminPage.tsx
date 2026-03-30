@@ -25,6 +25,14 @@ interface SettingsFormState {
   scheduledOpenAt: string
 }
 
+interface CreatePrizeFormState {
+  name: string
+  probabilityPercent: string
+  winMessage: string
+  isActive: boolean
+  sortOrder: string
+}
+
 interface PrizeDraft {
   id: string
   name: string
@@ -53,12 +61,65 @@ const emptySettingsForm: SettingsFormState = {
   scheduledOpenAt: '',
 }
 
-const emptyCreatePrizeForm = {
+const emptyCreatePrizeForm: CreatePrizeFormState = {
   name: '',
   probabilityPercent: '0',
   winMessage: '',
   isActive: true,
   sortOrder: '0',
+}
+
+function getPrizeFormError(input: {
+  name: string
+  probabilityPercent: string
+  winMessage: string
+  sortOrder: string
+}) {
+  if (!input.name.trim()) {
+    return '奖项名称不能为空。'
+  }
+
+  if (!input.winMessage.trim()) {
+    return '中奖文案不能为空。'
+  }
+
+  if (input.probabilityPercent.trim() === '') {
+    return '中奖概率不能为空。'
+  }
+
+  const probability = Number(input.probabilityPercent)
+  if (!Number.isFinite(probability) || probability < 0 || probability > 100) {
+    return '中奖概率必须是 0 到 100 之间的数字。'
+  }
+
+  if (input.sortOrder.trim() === '') {
+    return '排序不能为空。'
+  }
+
+  const sortOrder = Number(input.sortOrder)
+  if (!Number.isInteger(sortOrder)) {
+    return '排序必须是整数。'
+  }
+
+  return null
+}
+
+function getSettingsFormError(input: SettingsFormState) {
+  if (input.maxParticipants.trim() !== '') {
+    const maxParticipants = Number(input.maxParticipants)
+    if (!Number.isInteger(maxParticipants) || maxParticipants <= 0) {
+      return '抽奖人数上限必须是大于 0 的整数。'
+    }
+  }
+
+  if (input.scheduledOpenAt.trim() !== '') {
+    const scheduledOpenAt = new Date(input.scheduledOpenAt)
+    if (Number.isNaN(scheduledOpenAt.getTime())) {
+      return '自动开启时间格式不正确。'
+    }
+  }
+
+  return null
 }
 
 function toDateTimeLocalValue(value: string | null) {
@@ -274,6 +335,16 @@ export function AdminPage() {
   }
 
   async function saveLotterySettings() {
+    if (settingsError) {
+      setError(settingsError)
+      return
+    }
+
+    if (!hasSettingsChanges) {
+      setNotice('抽奖设置没有变化。')
+      return
+    }
+
     setBusy(true)
     setError(null)
 
@@ -306,6 +377,15 @@ export function AdminPage() {
       return
     }
 
+    if (!dashboard.isEnabled) {
+      const confirmed = window.confirm(
+        '开启抽奖会清空上一轮抽奖记录，并重置当前未删除奖项的卡密状态。确定继续吗？',
+      )
+      if (!confirmed) {
+        return
+      }
+    }
+
     setBusy(true)
     setError(null)
 
@@ -329,6 +409,12 @@ export function AdminPage() {
 
   async function createPrize(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+
+    if (createPrizeError) {
+      setError(createPrizeError)
+      return
+    }
+
     setBusy(true)
     setError(null)
 
@@ -354,6 +440,12 @@ export function AdminPage() {
   }
 
   async function savePrize(prize: PrizeDraft) {
+    const prizeError = prizeErrors[prize.id]
+    if (prizeError) {
+      setError(prizeError)
+      return
+    }
+
     setBusy(true)
     setError(null)
 
@@ -420,7 +512,7 @@ export function AdminPage() {
     try {
       const form = new FormData()
       form.append('file', file)
-      await apiUpload<{ imported: number; ignored: number }>(
+      const result = await apiUpload<{ imported: number; ignored: number }>(
         `/api/admin/prizes/${prizeId}/codes/import`,
         form,
       )
@@ -429,7 +521,7 @@ export function AdminPage() {
       if (expandedPrizeId === prizeId) {
         await loadPrizeCodes(prizeId)
       }
-      setNotice('卡密上传完成。')
+      setNotice(`卡密上传完成：导入 ${result.imported} 条，忽略 ${result.ignored} 条。`)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '卡密上传失败。')
     } finally {
@@ -513,6 +605,115 @@ export function AdminPage() {
       return Number.isFinite(value) ? sum + value : sum
     }, 0)
   }, [prizes])
+
+  const createPrizeError = useMemo(
+    () => getPrizeFormError(createPrizeForm),
+    [createPrizeForm],
+  )
+
+  const settingsError = useMemo(
+    () => getSettingsFormError(settingsForm),
+    [settingsForm],
+  )
+
+  const prizeErrors = useMemo(
+    () =>
+      Object.fromEntries(
+        prizes.map((prize) => [prize.id, getPrizeFormError(prize)]),
+      ) as Record<string, string | null>,
+    [prizes],
+  )
+
+  const currentSettingsSnapshot = useMemo(
+    () => (dashboard ? toSettingsFormState(dashboard) : emptySettingsForm),
+    [dashboard],
+  )
+
+  const hasSettingsChanges = useMemo(
+    () =>
+      settingsForm.maxParticipants !== currentSettingsSnapshot.maxParticipants
+      || settingsForm.scheduledOpenAt !== currentSettingsSnapshot.scheduledOpenAt,
+    [currentSettingsSnapshot, settingsForm],
+  )
+
+  const enabledPrizeWithoutCodes = useMemo(
+    () => prizes.filter((prize) => prize.isActive && prize.availableCodes === 0),
+    [prizes],
+  )
+
+  const remainingLoseProbability = useMemo(
+    () => Math.max(100 - activeProbability, 0),
+    [activeProbability],
+  )
+
+  const failedEmailCount = useMemo(
+    () => records.filter((record) => record.emailStatus === 'failed').length,
+    [records],
+  )
+
+  const pendingEmailCount = useMemo(
+    () => records.filter((record) => record.emailStatus === 'pending').length,
+    [records],
+  )
+
+  const sentEmailCount = useMemo(
+    () => records.filter((record) => record.emailStatus === 'sent').length,
+    [records],
+  )
+
+  const dashboardHints = useMemo(() => {
+    const hints: Array<{ tone: 'info' | 'warning'; text: string }> = []
+
+    if (activeProbability > 100) {
+      hints.push({
+        tone: 'warning',
+        text: `当前启用奖项的概率总和已达到 ${activeProbability.toFixed(2)}%，超过了 100%，保存时会被后端拒绝。`,
+      })
+    } else if (remainingLoseProbability > 0) {
+      hints.push({
+        tone: 'info',
+        text: `当前还有 ${remainingLoseProbability.toFixed(2)}% 的概率会落到“未中奖”。`,
+      })
+    }
+
+    if (enabledPrizeWithoutCodes.length > 0) {
+      hints.push({
+        tone: 'warning',
+        text: `当前有 ${enabledPrizeWithoutCodes.length} 个启用奖项没有剩余卡密，实际抽奖时会被自动跳过。`,
+      })
+    }
+
+    if (pendingEmailCount > 0) {
+      hints.push({
+        tone: 'info',
+        text: `最近记录中有 ${pendingEmailCount} 封中奖邮件仍显示为发送中。`,
+      })
+    }
+
+    if (failedEmailCount > 0) {
+      hints.push({
+        tone: 'warning',
+        text: `最近记录中有 ${failedEmailCount} 封中奖邮件发送失败，建议尽快处理。`,
+      })
+    }
+
+    if (dashboard?.scheduledOpenAt && !dashboard.isEnabled) {
+      hints.push({
+        tone: 'info',
+        text: '系统当前处于关闭状态，到达设定时间后首次访问会自动开启新一轮抽奖。',
+      })
+    }
+
+    return hints
+  }, [
+    dashboard?.isEnabled,
+    dashboard?.scheduledOpenAt,
+    activeProbability,
+    enabledPrizeWithoutCodes.length,
+    failedEmailCount,
+    pendingEmailCount,
+    remainingLoseProbability,
+  ])
 
   if (loading) {
     return (
@@ -685,6 +886,14 @@ export function AdminPage() {
               <span className="metric-label">中奖人数</span>
               <strong>{dashboard?.winnerCount ?? 0}</strong>
             </div>
+            <div className="metric-card">
+              <span className="metric-label">邮件发送失败</span>
+              <strong>{failedEmailCount}</strong>
+            </div>
+            <div className="metric-card">
+              <span className="metric-label">启用但无卡密</span>
+              <strong>{enabledPrizeWithoutCodes.length}</strong>
+            </div>
           </div>
           <div className="inline-fields">
             <label className="field">
@@ -718,7 +927,7 @@ export function AdminPage() {
           </div>
           <button
             className="secondary-button"
-            disabled={busy}
+            disabled={busy || !hasSettingsChanges || Boolean(settingsError)}
             onClick={() => void saveLotterySettings()}
             type="button"
           >
@@ -741,6 +950,16 @@ export function AdminPage() {
               : '当前未设置自动开启时间。'}
           </p>
           <p className="inline-note">当人数达到上限或卡密全部抽完时，系统会自动关闭抽奖。</p>
+          {settingsError ? <p className="inline-error">{settingsError}</p> : null}
+          {dashboardHints.length ? (
+            <div className="notice-list">
+              {dashboardHints.map((hint) => (
+                <div className={`notice-card ${hint.tone}`} key={hint.text}>
+                  {hint.text}
+                </div>
+              ))}
+            </div>
+          ) : null}
           {dashboard?.prizeSummaries.length ? (
             <div className="prize-grid">
               {dashboard.prizeSummaries.map((prize) => (
@@ -827,9 +1046,10 @@ export function AdminPage() {
                 <span>创建后立即启用</span>
               </label>
             </div>
-            <button className="primary-button" disabled={busy} type="submit">
-              创建奖项
+            <button className="primary-button" disabled={busy || Boolean(createPrizeError)} type="submit">
+              {createPrizeError ? '请先修正表单' : '创建奖项'}
             </button>
+            {createPrizeError ? <p className="inline-error">{createPrizeError}</p> : null}
           </form>
         </article>
       </section>
@@ -912,11 +1132,16 @@ export function AdminPage() {
                       }}
                       type="file"
                     />
+                    <small>
+                      {selectedFiles[prize.id]
+                        ? `已选择文件：${selectedFiles[prize.id]!.name}`
+                        : '支持 txt / csv，一行一个卡密或单列 code。'}
+                    </small>
                   </div>
                   <div className="cell-stack">
                     <button
                       className="secondary-button"
-                      disabled={busy}
+                      disabled={busy || Boolean(prizeErrors[prize.id])}
                       onClick={() => void savePrize(prize)}
                       type="button"
                     >
@@ -924,7 +1149,7 @@ export function AdminPage() {
                     </button>
                     <button
                       className="secondary-button"
-                      disabled={busy}
+                      disabled={busy || !selectedFiles[prize.id]}
                       onClick={() => void uploadCodes(prize.id)}
                       type="button"
                     >
@@ -946,6 +1171,9 @@ export function AdminPage() {
                     >
                       删除奖项
                     </button>
+                    {prizeErrors[prize.id] ? (
+                      <small className="inline-error">{prizeErrors[prize.id]}</small>
+                    ) : null}
                   </div>
                 </div>
 
@@ -994,6 +1222,11 @@ export function AdminPage() {
         <div className="section-title">
           <h2>最新抽奖记录</h2>
           <span>仅管理员可查看中奖卡密与结果详情</span>
+        </div>
+        <div className="prize-grid">
+          <div className="prize-chip">最近 50 条中已发送 {sentEmailCount} 封</div>
+          <div className="prize-chip">发送中 {pendingEmailCount} 封</div>
+          <div className="prize-chip">发送失败 {failedEmailCount} 封</div>
         </div>
         <div className="table-grid records-grid">
           <div className="table-head table-row">

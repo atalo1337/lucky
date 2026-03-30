@@ -113,7 +113,7 @@ a {
 .hero-stats,
 .metric-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 14px;
   margin-top: 24px;
 }
@@ -248,6 +248,29 @@ a {
 
 .banner.success {
   color: #215b34;
+}
+
+.notice-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.notice-card {
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(19, 34, 56, 0.08);
+  font-size: 0.95rem;
+}
+
+.notice-card.info {
+  background: rgba(77, 141, 255, 0.08);
+  color: #204b96;
+}
+
+.notice-card.warning {
+  background: rgba(255, 177, 60, 0.14);
+  color: #8f4a07;
 }
 
 .content-grid {
